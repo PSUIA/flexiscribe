@@ -6,13 +6,10 @@ export default async function Landing({ searchParams }) {
   const roleParam = role === "student" || role === "educator" || role === "prototype" ? `?role=${role}` : "";
 
   const portalLabel =
-    role === "student"
-      ? "Student Portal"
-      : role === "educator"
-        ? "Educator Portal"
-        : role === "prototype"
-          ? "Prototype"
-          : "Student & Educator Portal";
+    role === "student"    ? "Student Portal" : 
+    role === "educator"   ? "Educator Portal": 
+    role === "prototype"  ? "Prototype"
+    : "Student & Educator Portal";
 
   return (
     <div className="container min-h-screen flex flex-col">
