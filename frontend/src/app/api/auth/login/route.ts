@@ -1,7 +1,7 @@
 import prisma from "@/src/lib/db";
+import { NextResponse } from "next/server";
 import bcrypt from "bcrypt";
 import { generateToken } from "@/src/lib/auth";
-import { NextResponse } from "next/server";
 
 export async function POST(request: Request) {
   try {
@@ -100,7 +100,7 @@ export async function POST(request: Request) {
       role: user.role as "ADMIN" | "STUDENT" | "EDUCATOR",
     });
 
-    // Calculate token expiry (24 hrs from now)
+    // Calculate token expiry (1 day from now)
     const tokenExpiry = new Date();
     tokenExpiry.setDate(tokenExpiry.getDate() + 1);
 
