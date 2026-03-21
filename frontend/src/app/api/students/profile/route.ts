@@ -1,49 +1,135 @@
-import { NextRequest, NextResponse } from 'next/server';
-import prisma from '@/src/lib/db';
+import { NextRequest, NextResponse } from "next/server";
+import { getCurrentUser } from "@/src/lib/auth";
+import prisma from "@/src/lib/db";
 
+// Get authenticated student's profile data
 export async function GET(request: NextRequest) {
   try {
-    // Fetch all students ordered by XP descending, include quiz attempt counts
-    // Ghost users are excluded from the public leaderboard
-    const students = await prisma.student.findMany({
-      where: {
-        user: { isGhost: false },
-      },
-      select: {
-        id: true,
-        studentNumber: true,
-        username: true,
-        fullName: true,
-        xp: true,
-        avatar: true,
-        _count: {
+    const user = await getCurrentUser();
+
+    if (!user) {
+      return NextResponse.json(
+        { error: "Not authenticated" },
+        { status: 401 }
+      );
+    }
+
+    if (user.role !== "STUDENT") {
+      return NextResponse.json(
+        { error: "Unauthorized - Student access only" },
+        { status: 403 }
+      );
+    }
+
+    // Fetch student data with user information
+    const student = await prisma.student.findUnique({
+      where: { userId: user.userId },
+      include: {
+        user: {
           select: {
-            quizAttempts: true,
+            email: true,
+            role: true,
           },
         },
       },
-      orderBy: {
-        xp: 'desc',
+    });
+
+    if (!student) {
+      return NextResponse.json(
+        { error: "Student profile not found" },
+        { status: 404 }
+      );
+    }
+
+    // Format the response
+    const profile = {
+      id: student.id,
+      studentNumber: student.studentNumber,
+      username: student.username || student.user.email.split('@')[0],
+      fullName: student.fullName,
+      yearLevel: student.yearLevel,
+      section: student.section,
+      program: student.program,
+      gender: student.gender,
+      birthDate: student.birthDate,
+      xp: student.xp || 0,
+      avatar: student.avatar || null,
+      email: student.user.email,
+      role: student.user.role,
+    };
+
+    return NextResponse.json({ profile }, { status: 200 });
+  } catch (error) {
+    console.error("Get student profile error:", error);
+    return NextResponse.json(
+      { error: "An error occurred while fetching profile" },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * Update authenticated student's profile data (avatar, XP, etc.)
+ */
+export async function PUT(request: NextRequest) {
+  try {
+    const user = await getCurrentUser();
+
+    if (!user) {
+      return NextResponse.json(
+        { error: "Not authenticated" },
+        { status: 401 }
+      );
+    }
+
+    if (user.role !== "STUDENT") {
+      return NextResponse.json(
+        { error: "Unauthorized - Student access only" },
+        { status: 403 }
+      );
+    }
+
+    const body = await request.json();
+    const { avatar, xp } = body;
+
+    // Update student data
+    const updatedStudent = await prisma.student.update({
+      where: { userId: user.userId },
+      data: {
+        ...(avatar !== undefined && { avatar }),
+        ...(xp !== undefined && { xp }),
+      },
+      include: {
+        user: {
+          select: {
+            email: true,
+            role: true,
+          },
+        },
       },
     });
 
-    // Add rank and quizzesTaken to each student
-    const leaderboard = students.map((student, index) => ({
-      id: student.id,
-      studentNumber: student.studentNumber,
-      username: student.username,
-      fullName: student.fullName,
-      xp: student.xp,
-      avatar: student.avatar,
-      rank: index + 1,
-      quizzesTaken: student._count.quizAttempts,
-    }));
+    const profile = {
+      id: updatedStudent.id,
+      studentNumber: updatedStudent.studentNumber,
+      username: updatedStudent.username || updatedStudent.user.email.split('@')[0],
+      fullName: updatedStudent.fullName,
+      yearLevel: updatedStudent.yearLevel,
+      section: updatedStudent.section,
+      program: updatedStudent.program,
+      gender: updatedStudent.gender,
+      birthDate: updatedStudent.birthDate,
+      xp: updatedStudent.xp,
+      avatar: updatedStudent.avatar,
+      email: updatedStudent.user.email,
+      role: updatedStudent.user.role,
+    };
 
-    return NextResponse.json({ leaderboard });
+    return NextResponse.json({ profile }, { status: 200 });
   } catch (error) {
-    console.error('Error fetching leaderboard:', error);
+    console.error("Update student profile error:", error);
     return NextResponse.json(
-      { error: 'Failed to fetch leaderboard' },
+      { error: "An error occurred while updating profile" },
       { status: 500 }
     );
   }
