@@ -1,0 +1,163 @@
+import prisma from "@/src/lib/db";
+import bcrypt from "bcrypt";
+import { generateToken } from "@/src/lib/auth";
+import { NextResponse } from "next/server";
+
+export async function POST(request: Request) {
+  try {
+    const body = await request.json();
+    const { email, password, role } = body;
+
+    // Validate required fields
+    if (!email || !password || !role) {
+      return NextResponse.json(
+        { error: "Email, password, and role are required" },
+        { status: 400 }
+      );
+    }
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return NextResponse.json(
+        { error: "Invalid email format" },
+        { status: 400 }
+      );
+    }
+
+    // Find user by email
+    const user = await prisma.user.findUnique({
+      where: { email },
+      include: {
+        educator: {
+          include: {
+            department: true,
+          },
+        },
+        student: true,
+      },
+    });
+
+    if (!user) {
+      return NextResponse.json(
+        { error: "Invalid email or password" },
+        { status: 401 }
+      );
+    }
+
+    // Verify role matches
+    if (user.role !== role) {
+      return NextResponse.json(
+        { error: "Invalid credentials for this role" },
+        { status: 401 }
+      );
+    }
+
+    // Verify password
+    const isPasswordValid = await bcrypt.compare(password, user.password);
+
+    if (!isPasswordValid) {
+      return NextResponse.json(
+        { error: "Invalid email or password" },
+        { status: 401 }
+      );
+    }
+
+    // Prepare response based on role
+    let userData: any = {
+      id: user.id,
+      email: user.email,
+      role: user.role,
+    };
+
+    if (user.role === "EDUCATOR" && user.educator) {
+      userData.educator = {
+        id: user.educator.id,
+        username: user.educator.username,
+        fullName: user.educator.fullName,
+        gender: user.educator.gender,
+        department: {
+          id: user.educator.department.id,
+          name: user.educator.department.name,
+        },
+      };
+    } else if (user.role === "STUDENT" && user.student) {
+      userData.student = {
+        id: user.student.id,
+        studentNumber: user.student.studentNumber,
+        fullName: user.student.fullName,
+        yearLevel: user.student.yearLevel,
+        section: user.student.section,
+        program: user.student.program,
+        gender: user.student.gender,
+      };
+    }
+
+    // Generate JWT token using shared auth lib (jose)
+    const token = await generateToken({
+      userId: user.id,
+      email: user.email,
+      role: user.role as "ADMIN" | "STUDENT" | "EDUCATOR",
+    });
+
+    // Calculate token expiry (24 hrs from now)
+    const tokenExpiry = new Date();
+    tokenExpiry.setDate(tokenExpiry.getDate() + 1);
+
+    // Update user with token in database
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        token,
+        tokenExpiry,
+      },
+    });
+
+    // Audit log - user login
+    try {
+      const displayName = user.role === "EDUCATOR" && user.educator
+        ? user.educator.fullName
+        : user.role === "STUDENT" && user.student
+          ? user.student.fullName
+          : user.email;
+      await prisma.auditLog.create({
+        data: {
+          action: "User Login",
+          details: `${displayName} (${user.role}) logged in`,
+          userRole: user.role as any,
+          userName: displayName,
+          userId: user.id,
+        },
+      });
+    } catch (e) {
+      console.error("Audit log error:", e);
+    }
+
+    // Create response
+    const response = NextResponse.json(
+      {
+        message: "Login successful",
+        user: userData,
+        token,
+      },
+      { status: 200 }
+    );
+
+    // Set secure HTTP-only cookie on the response
+    response.cookies.set("auth-token", token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: 60 * 60 * 24, // 1 day
+      path: "/",
+    });
+
+    return response;
+  } catch (error) {
+    console.error("Login error:", error);
+    return NextResponse.json(
+      { error: "An error occurred during login" },
+      { status: 500 }
+    );
+  }
+}
