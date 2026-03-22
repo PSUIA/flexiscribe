@@ -1,7 +1,7 @@
-import prisma from "@/src/lib/db";
-import { NextResponse } from "next/server";
-import bcrypt from "bcrypt";
 import { generateToken } from "@/src/lib/auth";
+import { NextResponse } from "next/server";
+import prisma from "@/src/lib/db";
+import bcrypt from "bcrypt";
 
 export async function POST(request: Request) {
   try {
@@ -166,9 +166,9 @@ export async function POST(request: Request) {
       role: result.user.role as "ADMIN" | "STUDENT" | "EDUCATOR",
     });
 
-    // Calculate token expiry (7 days from now)
+    // Calculate token expiry
     const tokenExpiry = new Date();
-    tokenExpiry.setDate(tokenExpiry.getDate() + 7);
+    tokenExpiry.setDate(tokenExpiry.getDate() + 1);
 
     // Update user with token
     await prisma.user.update({
